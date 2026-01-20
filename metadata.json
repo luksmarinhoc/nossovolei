@@ -1,0 +1,5 @@
+{
+  "name": "NOSSO VÔLEI",
+  "description": "Um gerenciador de times de vôlei inteligente que organiza jogadores por ordem de chegada e cria equipes equilibradas por gênero.",
+  "requestFramePermissions": []
+}
