@@ -104,6 +104,12 @@ const App: React.FC = () => {
     setPlayers(mixedPlayers);
   };
 
+  const handleReset = () => {
+    if (window.confirm("ATENÇÃO: Isso apagará TODOS os jogadores e times.\n\nDeseja realmente resetar o aplicativo?")) {
+      setPlayers([]);
+    }
+  };
+
   const handleWin = (team: 'A' | 'B') => {
     if (window.confirm(`Confirmar vitória do Time ${team}? \n(Os perdedores irão para o final da fila)`)) {
       setPlayers(prev => processGameResult(prev, team));
@@ -124,6 +130,7 @@ const App: React.FC = () => {
           playerCount={players.length}
           onGenerate={handleShuffleTeams}
           onAddRandom={handleAddRandomPlayer}
+          onReset={handleReset}
         />
 
         <TeamDisplay 
