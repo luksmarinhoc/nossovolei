@@ -68,62 +68,80 @@ export const processGameResult = (players: Player[], winnerSide: 'A' | 'B'): Pla
   let maxSeq = players.reduce((max, p) => Math.max(max, p.sequenceNumber || 0), 0);
   
   const winners = players.filter(p => p.team === winnerSide);
-  const losers = players.filter(p => p.team !== winnerSide && p.team !== 'WAITING');
+  const loserSide: TeamSide = winnerSide === 'A' ? 'B' : 'A';
   
-  // Ensure we sort waiting list safely
+  // Sort losers by arrival (sequenceNumber) ascending (Low = arrived first/oldest)
+  const losers = players
+    .filter(p => p.team === loserSide)
+    .sort((a, b) => (a.sequenceNumber || 0) - (b.sequenceNumber || 0));
+  
+  // Sort waiting list
   const waiting = players
     .filter(p => p.team === 'WAITING')
     .sort((a, b) => (a.sequenceNumber || 0) - (b.sequenceNumber || 0));
   
-  // LOGIC:
-  // If Waiting List is "Complete" (Enough for 2 teams, i.e., >= 12 people), EVERYONE LEAVES (Winner + Loser -> End of Queue).
-  // Else (Waiting List < 12), WINNER STAYS ON THEIR SIDE, Loser -> End of Queue, Waiting -> Loser's Side.
+  const TEAM_SIZE = 6;
+  const waitingCount = waiting.length;
   
-  const isWaitingListFullForTwoTeams = waiting.length >= 12;
+  // Lists for the next state
+  let nextWinners = winners.map(p => ({ ...p })); // Winners stay as is (preserve sequence)
+  let nextLoserSide: Player[] = [];
+  let nextWaiting: Player[] = [];
 
-  if (isWaitingListFullForTwoTeams) {
-    // 1. Move Winners and Losers to end of line
-    const oldPlayers = [...winners, ...losers];
+  if (waitingCount >= TEAM_SIZE) {
+    // SCENARIO 1: Enough substitutes for a full team swap
+    // (Standard Logic: Winners Stay, Losers go to Waiting, Waiting enters)
     
-    // We append them to the end, updating sequence numbers
-    const movedToWaiting = oldPlayers.map(p => {
-      maxSeq++;
-      return { ...p, team: 'WAITING' as TeamSide, sequenceNumber: maxSeq };
-    });
-
-    // 2. Promote Top 12 from Waiting to Active
-    const nextGameGroup = waiting.slice(0, 12);
-    const remainingWaiting = waiting.slice(12);
-
-    // Distribute these 12 into A and B respecting order (Top 6 -> A, Next 6 -> B)
-    const nextA = nextGameGroup.slice(0, 6).map(p => ({ ...p, team: 'A' as TeamSide }));
-    const nextB = nextGameGroup.slice(6, 12).map(p => ({ ...p, team: 'B' as TeamSide }));
-
-    return [...nextA, ...nextB, ...remainingWaiting, ...movedToWaiting];
-
-  } else {
-    // Standard Rotation: Winner Stays, Loser Leaves, Top of Waiting enters.
-    
-    // 1. Winners stay on their OWN side (A stays A, B stays B)
-    const keptWinners = winners.map(p => ({ ...p, team: winnerSide }));
-
-    // 2. Losers go to end of waiting list
+    // 1. All losers go to Waiting (End of line)
     const movedLosers = losers.map(p => {
       maxSeq++;
       return { ...p, team: 'WAITING' as TeamSide, sequenceNumber: maxSeq };
     });
 
-    // 3. Top of waiting list fills the LOSER'S side
-    const loserSide = winnerSide === 'A' ? 'B' : 'A';
-    const neededForChallengers = 6; // Standard team size
+    // 2. Top 'TEAM_SIZE' from Waiting go to Loser Side
+    const entering = waiting.slice(0, TEAM_SIZE).map(p => ({ ...p, team: loserSide }));
     
-    const nextInLine = waiting.slice(0, neededForChallengers);
-    const remainingWaiting = waiting.slice(neededForChallengers);
+    // 3. Remaining Waiting stay in Waiting
+    const remainingWaiting = waiting.slice(TEAM_SIZE);
 
-    const newChallengers = nextInLine.map(p => ({ ...p, team: loserSide as TeamSide }));
+    nextLoserSide = entering;
+    nextWaiting = [...remainingWaiting, ...movedLosers];
 
-    return [...keptWinners, ...newChallengers, ...remainingWaiting, ...movedLosers];
+  } else {
+    // SCENARIO 2: Not enough substitutes (Partial swap)
+    
+    // We need to fill TEAM_SIZE spots.
+    // We have waitingCount available.
+    // We need to keep (TEAM_SIZE - waitingCount) players from the losing team.
+    const numToKeep = Math.max(0, TEAM_SIZE - waitingCount);
+    
+    // "Ficará no time o jogador que chegou primeiro"
+    // Since we sorted 'losers' by sequenceNumber ascending, the first elements are the "oldest".
+    const losersToStay = losers.slice(0, numToKeep);
+    const losersToLeave = losers.slice(numToKeep);
+
+    // "Ficando entre os últimos do time" -> They stay on the team, but get updated sequence numbers 
+    // to reflect they are now effectively "newer" than the winners or existing players, 
+    // ensuring rotation in future rounds.
+    const updatedStaying = losersToStay.map(p => {
+      maxSeq++;
+      return { ...p, team: loserSide, sequenceNumber: maxSeq };
+    });
+
+    // Leaving losers go to Waiting (End of line)
+    const movedLosers = losersToLeave.map(p => {
+      maxSeq++;
+      return { ...p, team: 'WAITING' as TeamSide, sequenceNumber: maxSeq };
+    });
+
+    // All currently waiting players enter the team
+    const entering = waiting.map(p => ({ ...p, team: loserSide }));
+
+    nextLoserSide = [...entering, ...updatedStaying];
+    nextWaiting = movedLosers;
   }
+
+  return [...nextWinners, ...nextLoserSide, ...nextWaiting];
 };
 
 export const removePlayerAndRefill = (players: Player[], idToRemove: string): Player[] => {
